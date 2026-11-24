@@ -8,23 +8,53 @@ const zlib = require('zlib');
 const { WebSocketServer } = require('ws');
 
 const PORT = process.env.PORT || 8080;
-const PAGE = path.join(__dirname, 'public', 'index.html');
 const MAPS = ['factory', 'rail', 'ice', 'aquarium', 'jail'];
 const TEAM_SIZE = 5;
 const COUNTDOWN = 5;
 
 // ---------- static page (gzipped once, cached) ----------
-let page = null, pageGz = null;
+// The game page is normally public/index.html, but it is also found if it was uploaded next to server.js, under
+// another name, or in any sub-folder (GitHub's web uploader sometimes flattens or renames folders).
+function findPage() {
+  const tryFiles = [path.join(__dirname, 'public', 'index.html'), path.join(__dirname, 'index.html')];
+  for (const f of tryFiles) if (fs.existsSync(f)) return f;
+  const big = [];
+  const walk = (dir, depth) => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (e.name === 'node_modules' || e.name.startsWith('.')) continue;
+      const f = path.join(dir, e.name);
+      if (e.isDirectory() && depth < 3) walk(f, depth + 1);
+      else if (e.isFile() && /\.html?$/i.test(e.name)) big.push([fs.statSync(f).size, f]);
+    }
+  };
+  try { walk(__dirname, 0); } catch (e) {}
+  big.sort((a, b) => b[0] - a[0]);
+  return big.length && big[0][0] > 1e6 ? big[0][1] : null; // the game page is the big one (~17 MB)
+}
+let page = null, pageGz = null, pagePath = null;
 function loadPage() {
-  try { page = fs.readFileSync(PAGE); pageGz = zlib.gzipSync(page, { level: 9 }); console.log('page', (page.length / 1048576).toFixed(1), 'MB →', (pageGz.length / 1048576).toFixed(1), 'MB gzipped'); }
-  catch (e) { console.error('missing', PAGE); }
+  pagePath = findPage();
+  if (!pagePath) { console.error('Game page not found. Put index.html in a folder named "public" next to server.js.'); return; }
+  try { page = fs.readFileSync(pagePath); pageGz = zlib.gzipSync(page, { level: 9 }); console.log('page', path.relative(__dirname, pagePath), (page.length / 1048576).toFixed(1), 'MB →', (pageGz.length / 1048576).toFixed(1), 'MB gzipped'); }
+  catch (e) { console.error('could not read', pagePath, e.message); page = null; }
 }
 loadPage();
+function missingPage(res) {
+  let files = [];
+  const walk = (dir, pre) => { for (const e of fs.readdirSync(dir, { withFileTypes: true })) { if (e.name === 'node_modules' || e.name.startsWith('.')) continue; files.push(pre + e.name + (e.isDirectory() ? '/' : '')); if (e.isDirectory() && pre.length < 40) walk(path.join(dir, e.name), pre + e.name + '/'); } };
+  try { walk(__dirname, ''); } catch (e) {}
+  res.writeHead(500, { 'content-type': 'text/html; charset=utf-8' });
+  res.end(`<body style="font:16px sans-serif;background:#111;color:#eee;padding:30px;max-width:720px">
+    <h2>OVERPRESSURE: game page missing</h2>
+    <p>The server is running, but it can't find the game file. Upload <b>index.html</b> (about 17 MB, from the <b>public</b> folder in the zip) into a folder named <b>public</b> in your repository, next to server.js. Render redeploys by itself after you commit.</p>
+    <p>Files the server can see right now:</p><pre style="background:#222;padding:12px">${files.join('\n').replace(/</g, '&lt;') || '(none)'}</pre></body>`);
+}
 const server = http.createServer((req, res) => {
   const url = req.url.split('?')[0];
   if (url === '/healthz') { res.writeHead(200, { 'content-type': 'text/plain' }); return res.end('ok'); }
   if (url === '/' || url === '/index.html') {
-    if (!page) { res.writeHead(500); return res.end('game page missing'); }
+    if (!page) loadPage();
+    if (!page) return missingPage(res);
     const gz = /\bgzip\b/.test(req.headers['accept-encoding'] || '');
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache', ...(gz ? { 'content-encoding': 'gzip' } : {}) });
     return res.end(gz ? pageGz : page);
