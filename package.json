@@ -1,11 +1,17 @@
 {
-  "name": "overpressure-multiplayer",
+  "name": "zerohour",
   "version": "1.0.0",
-  "description": "OVERPRESSURE multiplayer server: lobbies with room codes, relays matches, serves the game",
-  "main": "server.js",
-  "scripts": { "start": "node server.js" },
-  "engines": { "node": ">=18" },
-  "dependencies": { "ws": "^8.18.0" },
-  "license": "UNLICENSED",
-  "private": true
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "esbuild": "^0.28.2",
+    "three": "^0.170.0"
+  },
+  "type": "module"
 }
